@@ -1,0 +1,5 @@
+alpaca_data.json
+alpaca_data_cleaned_archive.json
+alpaca_data_gpt4.json
+.idea/
+__pycache__/
