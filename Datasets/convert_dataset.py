@@ -3,14 +3,12 @@ Adapted from https://github.com/tloen/alpaca-lora/blob/main/finetune.py
 """
 
 import datasets
+import transformers
 from datasets import load_dataset, IterableDataset
 from transformers import LlamaTokenizer
 from .prompter import Prompter
 from BenchKit.Data.Helpers import get_dataloader
 from Datasets.ProjectDatasets import AlpacaChunker
-# from datasets import disable_caching
-
-# disable_caching()
 
 
 class Tokenizer:
@@ -44,6 +42,13 @@ class Tokenizer:
         self.prompter = Prompter(template_name)
         self.train_on_inputs = train_on_inputs
         self.add_eos_token = add_eos_token
+
+    @property
+    def seq_to_seq_collator(self):
+        return transformers.DataCollatorForSeq2Seq(self.tokenizer,
+                                                   pad_to_multiple_of=8,
+                                                   return_tensors="pt",
+                                                   padding=True)
 
     def _add_eos(self, result: dict) -> dict:
         """
@@ -120,6 +125,18 @@ def to_hf_dataset(data_path,
                   template_name: str = "alpaca",
                   train_on_inputs=True,
                   add_eos_token=True) -> tuple[datasets.Dataset, datasets.Dataset | None]:
+    """
+    If you wish to use the hugging face dataset this method will return the split dataset ready for
+    training
+
+    :param data_path: the path to the json prompt file
+    :param base_model: the model being trained from hugging face
+    :param validation_samples: the amount of samples wished to be used for validation
+    :param template_name: what template is being used for prompt structuring
+    :param train_on_inputs: ~
+    :param add_eos_token: ~
+    :return: Train dataset or Validation and a Train Dataset
+    """
 
     data = load_dataset("json", data_files=data_path)
 
@@ -139,23 +156,29 @@ def to_hf_dataset(data_path,
     return train_data, val_data
 
 
-def to_hf_iterable(data: IterableDataset,
-                   base_model: str,
-                   template_name: str = "alpaca",
-                   train_on_inputs=True,
-                   add_eos_token=True) -> IterableDataset:
-
-    tokenizer = Tokenizer(base_model,
-                          template_name=template_name,
-                          train_on_inputs=train_on_inputs,
-                          add_eos_token=add_eos_token)
+def apply_transformations(data: IterableDataset,
+                          tokenizer: Tokenizer) -> IterableDataset:
+    """
+    Maps the output of the HuggingFace Iterable and turns it into a structured prompt
+    :param data: the IterableDataset
+    :param tokenizer: the tokenizer wished to be used
+    """
 
     data = data.map(tokenizer)
 
     return data
 
 
-def get_bench_dataloader(ds_name: str) -> datasets.IterableDataset:
+def get_bench_hf_iterable_ds(ds_name: str,
+                             train=True) -> datasets.IterableDataset:
+    """
+
+    :param ds_name: The name of the dataset
+    :param train: gets the val portion of the dataset if false, train if true
+    :return: The Iterable dataset split
+    """
+
+    ds_name = f"TRAIN_{ds_name}" if train else f"VAL_{ds_name}"
     chunk_loader = AlpacaChunker()
     data_loader = get_dataloader(chunk_loader,
                                  ds_name,
