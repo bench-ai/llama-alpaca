@@ -1,5 +1,6 @@
+from sklearn.model_selection import train_test_split
 from BenchKit.Data.Datasets import ProcessorDataset, IterableChunk
-from BenchKit.Data.FileSaver import JsonFile, BaseFile
+from BenchKit.Data.FileSaver import JsonFile
 import pathlib
 import json
 
@@ -8,14 +9,13 @@ import json
 
 
 class AlpacaDataset(ProcessorDataset):
-
     """
     Processor Class used to upload json files to cloud
     """
 
-    def __init__(self, json_path: str):
+    def __init__(self, prompt_list: list[dict]):
         """
-        :param json_path: The path of the json file
+        :param prompt_list: The list of prompts
 
         Should be structured as list of prompt dicts
         [
@@ -28,12 +28,9 @@ class AlpacaDataset(ProcessorDataset):
         ]
         """
         super().__init__()
-        self.json_file = JsonFile() # The file saver
+        self.json_file = JsonFile()  # The file saver
 
-        self.prompt_list = []
-        with open(json_path, "r") as file:
-            file_prompt = json.load(file)
-            self.prompt_list.extend(file_prompt)
+        self.prompt_list = prompt_list
 
     def _get_savers(self) -> JsonFile:
         """
@@ -55,7 +52,6 @@ class AlpacaDataset(ProcessorDataset):
 
 
 class AlpacaChunker(IterableChunk):
-
     """
     Chunks Alpaca data into one zip file
     """
@@ -69,6 +65,34 @@ class AlpacaChunker(IterableChunk):
         """
         text_dict: dict = super().unpack_data(idx)
         return text_dict
+
+
+def get_processor_list(json_path: str,
+                       name: str) -> list[tuple[AlpacaDataset, AlpacaChunker, str]]:
+
+    """
+    processes and splits dataset for upload
+
+    :param json_path: Path to the json file containing prompts
+    :param name: the name you wish to apply to the dataset
+    :return: Tuple of a processor dataset, chunker, and dataset_name
+    """
+
+    with open(json_path, "r") as file:
+        file_prompt: list = json.load(file)
+
+        train, test = train_test_split(file_prompt,
+                                       test_size=0.03,
+                                       random_state=108,
+                                       shuffle=True)
+
+        train_processor = AlpacaDataset(train)
+        val_processor = AlpacaDataset(test)
+
+    return [
+        (train_processor, AlpacaChunker(), f"TRAIN_{name}"),
+        (val_processor, AlpacaChunker(), f"VAL_{name}"),
+    ]
 
 
 def main():
@@ -85,20 +109,20 @@ def main():
 
     base_path = pathlib.Path(__file__).resolve().parent.parent
 
-    vanilla_data_path = base_path / "alpaca_data.json"
-    clean_data_path = base_path / "alpaca_data_cleaned_archive.json"
-    gpt4_data_path = base_path / "alpaca_data_gpt4.json"
-
-    vanilla_proc = AlpacaDataset(str(vanilla_data_path))
-    clean_proc = AlpacaDataset(str(clean_data_path))
-    gpt4_proc = AlpacaDataset(str(gpt4_data_path))
-
-    vanilla_chunker = AlpacaChunker()
-    clean_chunker = AlpacaChunker()
-    gpt4_chunker = AlpacaChunker()
-
-    return [
-        (vanilla_proc, vanilla_chunker, "vanilla_ds"),
-        (clean_proc, clean_chunker, "clean_ds"),
-        (gpt4_proc, gpt4_chunker, "gpt4_ds")
+    path_list =[
+        base_path / "alpaca_data.json",
+        base_path / "alpaca_data_cleaned_archive.json",
+        base_path / "alpaca_data_gpt4.json"
     ]
+
+    name_list = [
+        "vanilla",
+        "clean",
+        "gpt4"
+    ]
+
+    result = list(map(get_processor_list, path_list, name_list))
+
+    flattened_result = [item for row in result for item in row]
+
+    return flattened_result
